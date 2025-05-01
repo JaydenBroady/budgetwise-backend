@@ -17,7 +17,6 @@ from flask_jwt_extended import (
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 from fpdf import FPDF
-from flasgger import Swagger, LazyJSONEncoder
 
 from models import db, User, Transaction, Budget
 
@@ -36,42 +35,51 @@ app.config['JWT_TOKEN_LOCATION']            = ['headers']
 app.config['JWT_HEADER_NAME']               = 'Authorization'
 app.config['JWT_HEADER_TYPE']               = 'Bearer'
 
-# Use Flasgger's JSON encoder
-app.json_encoder = LazyJSONEncoder
+# ——— swagger / flasgger setup (optional) ———
+try:
+    from flasgger import Swagger, LazyJSONEncoder
 
-# Swagger / OpenAPI configuration
-swagger_template = {
-    "swagger": "2.0",
-    "info": {
-        "title": "BudgetWise API",
-        "description": "Interactive API docs for the BudgetWise backend",
-        "version": "1.0.0"
-    },
-    "securityDefinitions": {
-        "Bearer": {
-            "type": "apiKey",
-            "name": "Authorization",
-            "in": "header",
-            "description": "JWT Authorization header using the Bearer scheme. Example: 'Authorization: Bearer {token}'"
-        }
-    },
-    "security": [{"Bearer": []}]
-}
-swagger_config = {
-    "headers": [],
-    "specs": [
-        {
-            "endpoint": "apispec",
-            "route": "/apispec.json",
-            "rule_filter": lambda rule: True,
-            "model_filter": lambda tag: True,
-        }
-    ],
-    "static_url_path": "/flasgger_static",
-    "swagger_ui": True,
-    "specs_route": "/docs/"
-}
-Swagger(app, template=swagger_template, config=swagger_config)
+    # Use Flasgger's JSON encoder
+    app.json_encoder = LazyJSONEncoder
+
+    # Swagger / OpenAPI configuration
+    swagger_template = {
+        "swagger": "2.0",
+        "info": {
+            "title": "BudgetWise API",
+            "description": "Interactive API docs for the BudgetWise backend",
+            "version": "1.0.0"
+        },
+        "securityDefinitions": {
+            "Bearer": {
+                "type": "apiKey",
+                "name": "Authorization",
+                "in": "header",
+                "description": "JWT Authorization header using the Bearer scheme"
+            }
+        },
+        "security": [{"Bearer": []}]
+    }
+    swagger_config = {
+        "headers": [],
+        "specs": [
+            {
+                "endpoint": "apispec",
+                "route": "/apispec.json",
+                "rule_filter": lambda rule: True,
+                "model_filter": lambda tag: True,
+            }
+        ],
+        "static_url_path": "/flasgger_static",
+        "swagger_ui": True,
+        "specs_route": "/docs/"
+    }
+
+    Swagger(app, template=swagger_template, config=swagger_config)
+
+except ImportError:
+    # Flasgger isn't available or incompatible — skip docs setup
+    pass
 
 # Initialize extensions
 db.init_app(app)
@@ -88,26 +96,6 @@ auth = Blueprint('auth', __name__)
 def register():
     """
     Register a new user.
-    ---
-    tags:
-      - Authentication
-    parameters:
-      - in: body
-        name: user
-        schema:
-          required: [email, password]
-          properties:
-            email:
-              type: string
-            password:
-              type: string
-    responses:
-      201:
-        description: User registered successfully
-      400:
-        description: Missing email or password
-      409:
-        description: Email already exists
     """
     data = request.get_json() or {}
     email    = data.get('email')
@@ -126,26 +114,6 @@ def register():
 def login():
     """
     Obtain JWT access token.
-    ---
-    tags:
-      - Authentication
-    parameters:
-      - in: body
-        name: credentials
-        schema:
-          required: [email, password]
-          properties:
-            email:
-              type: string
-            password:
-              type: string
-    responses:
-      200:
-        description: Returns access token
-      400:
-        description: Missing email or password
-      401:
-        description: Invalid credentials
     """
     data = request.get_json() or {}
     email    = data.get('email')
@@ -163,49 +131,24 @@ def login():
 def add_transaction():
     """
     Create a new transaction.
-    ---
-    tags:
-      - Transactions
-    security:
-      - Bearer: []
-    parameters:
-      - in: body
-        name: transaction
-        schema:
-          required: [amount, category, type, date]
-          properties:
-            amount:
-              type: number
-            category:
-              type: string
-            type:
-              type: string
-              enum: [income, expense]
-            description:
-              type: string
-            date:
-              type: string
-              format: date
-    responses:
-      201:
-        description: Transaction added
-      400:
-        description: Validation error
     """
     user_id = int(get_jwt_identity())
     data    = request.get_json() or {}
     for field in ('amount', 'category', 'type', 'date'):
         if field not in data:
             return jsonify({'error': f"Missing field: {field}"}), 400
+
     try:
         amount = float(data['amount'])
         if amount <= 0:
             raise ValueError()
     except ValueError:
         return jsonify({'error': 'Amount must be a positive number'}), 400
+
     txn_type = data['type']
     if txn_type not in ('income', 'expense'):
         return jsonify({'error': 'Type must be "income" or "expense"'}), 400
+
     try:
         date_obj = datetime.strptime(data['date'], '%Y-%m-%d')
     except ValueError:
@@ -238,16 +181,6 @@ def add_transaction():
 def get_transactions():
     """
     Retrieve all transactions for the current user.
-    ---
-    tags:
-      - Transactions
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: List of transactions
-      404:
-        description: No transactions found
     """
     user_id = int(get_jwt_identity())
     txns    = Transaction.query.filter_by(user_id=user_id).all()
@@ -267,41 +200,12 @@ def get_transactions():
 def update_transaction(transaction_id):
     """
     Update a transaction.
-    ---
-    tags:
-      - Transactions
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: transaction_id
-        type: integer
-        required: true
-      - in: body
-        name: updates
-        schema:
-          properties:
-            amount:
-              type: number
-            category:
-              type: string
-            type:
-              type: string
-            description:
-              type: string
-            date:
-              type: string
-              format: date
-    responses:
-      200:
-        description: Transaction updated
-      404:
-        description: Not found or unauthorized
     """
     user_id = int(get_jwt_identity())
     txn     = Transaction.query.get(transaction_id)
     if not txn or txn.user_id != user_id:
         return jsonify({'message': 'Transaction not found or unauthorized'}), 404
+
     data = request.get_json() or {}
     if 'amount' in data:
         try:
@@ -324,6 +228,7 @@ def update_transaction(transaction_id):
             txn.date = datetime.strptime(data['date'], '%Y-%m-%d')
         except ValueError:
             return jsonify({'error': 'Invalid date format, use YYYY-MM-DD'}), 400
+
     db.session.commit()
     return jsonify({'message': 'Transaction updated successfully'}), 200
 
@@ -332,21 +237,6 @@ def update_transaction(transaction_id):
 def delete_transaction(transaction_id):
     """
     Delete a transaction.
-    ---
-    tags:
-      - Transactions
-    security:
-      - Bearer: []
-    parameters:
-      - in: path
-        name: transaction_id
-        type: integer
-        required: true
-    responses:
-      200:
-        description: Deleted successfully
-      404:
-        description: Not found or unauthorized
     """
     user_id = int(get_jwt_identity())
     txn     = Transaction.query.get(transaction_id)
@@ -361,26 +251,6 @@ def delete_transaction(transaction_id):
 def set_budget():
     """
     Set or update a budget for a category.
-    ---
-    tags:
-      - Budgets
-    security:
-      - Bearer: []
-    parameters:
-      - in: body
-        name: budget
-        schema:
-          required: [category, limit]
-          properties:
-            category:
-              type: string
-            limit:
-              type: number
-    responses:
-      200:
-        description: Budget set
-      400:
-        description: Validation error
     """
     user_id = int(get_jwt_identity())
     data    = request.get_json() or {}
@@ -394,12 +264,14 @@ def set_budget():
             raise ValueError()
     except ValueError:
         return jsonify({'error': 'Limit must be a non-negative number'}), 400
+
     budget = Budget.query.filter_by(user_id=user_id, category=category).first()
     if budget:
         budget.limit = limit_val
     else:
         budget = Budget(user_id=user_id, category=category, limit=limit_val)
         db.session.add(budget)
+
     db.session.commit()
     return jsonify({'message': 'Budget set successfully'}), 200
 
@@ -408,14 +280,6 @@ def set_budget():
 def get_budget_status():
     """
     Get budgets with spent and remaining amounts.
-    ---
-    tags:
-      - Budgets
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: List of budgets
     """
     user_id  = int(get_jwt_identity())
     budgets  = Budget.query.filter_by(user_id=user_id).all()
@@ -436,14 +300,6 @@ def get_budget_status():
 def export_transactions_csv():
     """
     Export transactions as CSV.
-    ---
-    tags:
-      - Exports
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: CSV file
     """
     user_id = int(get_jwt_identity())
     txns    = Transaction.query.filter_by(user_id=user_id).order_by(Transaction.date).all()
@@ -471,14 +327,6 @@ def export_transactions_csv():
 def export_transactions_pdf():
     """
     Export transactions as PDF.
-    ---
-    tags:
-      - Exports
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: PDF file
     """
     user_id = int(get_jwt_identity())
     txns    = Transaction.query.filter_by(user_id=user_id).order_by(Transaction.date).all()
@@ -512,14 +360,6 @@ def export_transactions_pdf():
 def spending_forecast():
     """
     Spending forecast (3-month moving average).
-    ---
-    tags:
-      - Insights
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: Forecast per category
     """
     user_id = int(get_jwt_identity())
     txns    = Transaction.query.filter_by(user_id=user_id, type='expense').all()
@@ -539,14 +379,6 @@ def spending_forecast():
 def anomaly_detection():
     """
     Anomaly detection (> mean + std).
-    ---
-    tags:
-      - Insights
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: List of anomalies
     """
     user_id = int(get_jwt_identity())
     txns    = Transaction.query.filter_by(user_id=user_id, type='expense').all()
@@ -577,17 +409,10 @@ def anomaly_detection():
 def budget_breach_alerts():
     """
     Budget breach alerts.
-    ---
-    tags:
-      - Insights
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: Alerts if forecast > budget
     """
     user_id = int(get_jwt_identity())
 
+    # forecast inline
     txns = Transaction.query.filter_by(user_id=user_id, type='expense').all()
     sums = defaultdict(lambda: defaultdict(float))
     for t in txns:
@@ -617,18 +442,10 @@ def budget_breach_alerts():
 def savings_recommendations():
     """
     Savings recommendations.
-    ---
-    tags:
-      - Insights
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: Suggested cuts
     """
     user_id = int(get_jwt_identity())
 
-    # inline forecast
+    # forecast inline
     txns = Transaction.query.filter_by(user_id=user_id, type='expense').all()
     sums = defaultdict(lambda: defaultdict(float))
     for t in txns:
@@ -640,7 +457,7 @@ def savings_recommendations():
         if vals:
             forecast[cat] = round(sum(vals) / len(vals), 2)
 
-    # inline alerts
+    # alerts inline
     budgets = Budget.query.filter_by(user_id=user_id).all()
     alerts  = []
     for b in budgets:
@@ -653,6 +470,7 @@ def savings_recommendations():
                 'excess':           round(fval - b.limit, 2)
             })
 
+    # recommendations
     recs = []
     for a in alerts:
         cut_pct = round((a['excess'] / a['forecasted_spend']) * 100, 2) if a['forecasted_spend'] else 0
