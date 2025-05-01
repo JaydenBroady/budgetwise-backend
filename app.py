@@ -3,6 +3,7 @@ import io
 import csv
 import logging
 import statistics
+import werkzeug  # for monkey-patching __version__ in tests
 from datetime import datetime
 from collections import defaultdict
 
@@ -19,6 +20,10 @@ from dotenv import load_dotenv
 from fpdf import FPDF
 
 from models import db, User, Transaction, Budget
+
+# Monkey-patch werkzeug.__version__ if missing (avoids FlaskClient error in pytest)
+if not hasattr(werkzeug, "__version__"):
+    werkzeug.__version__ = "3.1.3"
 
 # Load environment variables
 load_dotenv()
@@ -64,21 +69,21 @@ try:
         "headers": [],
         "specs": [
             {
-                "endpoint": "apispec",
-                "route": "/apispec.json",
-                "rule_filter": lambda rule: True,
+                "endpoint":     "apispec",
+                "route":        "/apispec.json",
+                "rule_filter":  lambda rule: True,
                 "model_filter": lambda tag: True,
             }
         ],
         "static_url_path": "/flasgger_static",
-        "swagger_ui": True,
-        "specs_route": "/docs/"
+        "swagger_ui":      True,
+        "specs_route":     "/docs/"
     }
 
     Swagger(app, template=swagger_template, config=swagger_config)
 
 except ImportError:
-    # Flasgger isn't available or incompatible — skip docs setup
+    # Flasgger isn't installed or incompatible—skip docs setup
     pass
 
 # Initialize extensions
@@ -94,9 +99,7 @@ auth = Blueprint('auth', __name__)
 
 @auth.route('/register', methods=['POST'])
 def register():
-    """
-    Register a new user.
-    """
+    """Register a new user."""
     data = request.get_json() or {}
     email    = data.get('email')
     password = data.get('password')
@@ -112,9 +115,7 @@ def register():
 
 @auth.route('/login', methods=['POST'])
 def login():
-    """
-    Obtain JWT access token.
-    """
+    """Obtain JWT access token."""
     data = request.get_json() or {}
     email    = data.get('email')
     password = data.get('password')
@@ -129,9 +130,7 @@ def login():
 @auth.route('/transactions', methods=['POST'])
 @jwt_required()
 def add_transaction():
-    """
-    Create a new transaction.
-    """
+    """Create a new transaction."""
     user_id = int(get_jwt_identity())
     data    = request.get_json() or {}
     for field in ('amount', 'category', 'type', 'date'):
@@ -179,9 +178,7 @@ def add_transaction():
 @auth.route('/transactions', methods=['GET'])
 @jwt_required()
 def get_transactions():
-    """
-    Retrieve all transactions for the current user.
-    """
+    """Retrieve all transactions for the current user."""
     user_id = int(get_jwt_identity())
     txns    = Transaction.query.filter_by(user_id=user_id).all()
     if not txns:
@@ -198,9 +195,7 @@ def get_transactions():
 @auth.route('/transactions/<int:transaction_id>', methods=['PUT'])
 @jwt_required()
 def update_transaction(transaction_id):
-    """
-    Update a transaction.
-    """
+    """Update a transaction."""
     user_id = int(get_jwt_identity())
     txn     = Transaction.query.get(transaction_id)
     if not txn or txn.user_id != user_id:
@@ -235,9 +230,7 @@ def update_transaction(transaction_id):
 @auth.route('/transactions/<int:transaction_id>', methods=['DELETE'])
 @jwt_required()
 def delete_transaction(transaction_id):
-    """
-    Delete a transaction.
-    """
+    """Delete a transaction."""
     user_id = int(get_jwt_identity())
     txn     = Transaction.query.get(transaction_id)
     if not txn or txn.user_id != user_id:
@@ -249,9 +242,7 @@ def delete_transaction(transaction_id):
 @auth.route('/budget', methods=['POST'])
 @jwt_required()
 def set_budget():
-    """
-    Set or update a budget for a category.
-    """
+    """Set or update a budget for a category."""
     user_id = int(get_jwt_identity())
     data    = request.get_json() or {}
     category = data.get('category')
@@ -278,9 +269,7 @@ def set_budget():
 @auth.route('/budget', methods=['GET'])
 @jwt_required()
 def get_budget_status():
-    """
-    Get budgets with spent and remaining amounts.
-    """
+    """Get budgets with spent and remaining amounts."""
     user_id  = int(get_jwt_identity())
     budgets  = Budget.query.filter_by(user_id=user_id).all()
     expenses = Transaction.query.filter_by(user_id=user_id, type='expense').all()
@@ -298,9 +287,7 @@ def get_budget_status():
 @auth.route('/transactions/export', methods=['GET'])
 @jwt_required()
 def export_transactions_csv():
-    """
-    Export transactions as CSV.
-    """
+    """Export transactions as CSV."""
     user_id = int(get_jwt_identity())
     txns    = Transaction.query.filter_by(user_id=user_id).order_by(Transaction.date).all()
     output  = io.StringIO()
@@ -325,9 +312,7 @@ def export_transactions_csv():
 @auth.route('/transactions/export-pdf', methods=['GET'])
 @jwt_required()
 def export_transactions_pdf():
-    """
-    Export transactions as PDF.
-    """
+    """Export transactions as PDF."""
     user_id = int(get_jwt_identity())
     txns    = Transaction.query.filter_by(user_id=user_id).order_by(Transaction.date).all()
     pdf     = FPDF()
@@ -358,9 +343,7 @@ def export_transactions_pdf():
 @auth.route('/insights/forecast', methods=['GET'])
 @jwt_required()
 def spending_forecast():
-    """
-    Spending forecast (3-month moving average).
-    """
+    """Spending forecast (3-month moving average)."""
     user_id = int(get_jwt_identity())
     txns    = Transaction.query.filter_by(user_id=user_id, type='expense').all()
     sums    = defaultdict(lambda: defaultdict(float))
@@ -377,9 +360,7 @@ def spending_forecast():
 @auth.route('/insights/anomalies', methods=['GET'])
 @jwt_required()
 def anomaly_detection():
-    """
-    Anomaly detection (> mean + std).
-    """
+    """Anomaly detection (> mean + std)."""
     user_id = int(get_jwt_identity())
     txns    = Transaction.query.filter_by(user_id=user_id, type='expense').all()
     by_cat  = defaultdict(list)
@@ -407,9 +388,7 @@ def anomaly_detection():
 @auth.route('/insights/alerts', methods=['GET'])
 @jwt_required()
 def budget_breach_alerts():
-    """
-    Budget breach alerts.
-    """
+    """Budget breach alerts."""
     user_id = int(get_jwt_identity())
 
     # forecast inline
@@ -440,9 +419,7 @@ def budget_breach_alerts():
 @auth.route('/insights/recommendations', methods=['GET'])
 @jwt_required()
 def savings_recommendations():
-    """
-    Savings recommendations.
-    """
+    """Savings recommendations."""
     user_id = int(get_jwt_identity())
 
     # forecast inline
